@@ -220,12 +220,12 @@ const StellarXPresentation = () => {
     };
   }, []);
 
-  const handleLogin = () => {
-    window.location.href = "/login";
+  const handleCreate = () => {
+    window.location.href = "/create";
   };
 
-  const handleSignup = () => {
-    window.location.href = "/signup";
+  const handleJoin = () => {
+    window.location.href = "/join";
   };
 
   return (
@@ -341,16 +341,16 @@ const StellarXPresentation = () => {
           </div>
           <div className="hero-buttons flex gap-4 mt-8 md:mt-10">
             <button
-              onClick={handleLogin}
+              onClick={handleCreate}
               className="px-6 md:px-8 py-2 md:py-3 bg-purple-600 hover:bg-purple-700 rounded-lg font-semibold transition-all duration-300 transform hover:scale-105"
             >
-              Login
+              Create class
             </button>
             <button
-              onClick={handleSignup}
+              onClick={handleJoin}
               className="px-6 md:px-8 py-2 md:py-3 bg-transparent border-2 border-purple-400 hover:bg-purple-400/20 rounded-lg font-semibold transition-all duration-300 transform hover:scale-105"
             >
-              Sign Up
+              join
             </button>
           </div>
         </div>
