@@ -78,7 +78,8 @@ const Base = ({
   //   };
   // }, []);
 
-  // 🔹 Types
+  /* ───────────────── Types ───────────────── */
+
   type OutputItem = {
     Data: string;
     time: string;
@@ -91,15 +92,36 @@ const Base = ({
     compile_output?: string;
   };
 
-  // 🔹 State
+  type ErrorClassification =
+    | { type: "SYNTAX_ERROR"; reason: string }
+    | { type: "RUNTIME_ERROR"; reason: string }
+    | { type: "SUCCESS"; reason: string };
+
+  type UserState = "STUCK" | "CONFUSED" | "IMPROVING" | "STRUGGLING" | "NORMAL";
+
+  /* ───────────────── State ───────────────── */
+
   const [Code, setCode] = useState<string>("");
   const [Output, setOutput] = useState<OutputItem[]>([]);
   const [CodeCompiling, setCodeCompiling] = useState<boolean>(false);
 
-  // 🔹 Ref
-  const outputRef = useRef<HTMLDivElement | null>(null);
+  const [errorCount, setErrorCount] = useState<number>(0);
+ const [errorType, setErrorType] = useState<ErrorClassification | null>(null);
+  const [lastRun, setLastRun] = useState<Date | null>(null);
 
-  // 🔹 Auto-scroll on compile
+  const [isStartedCoding, setIsStartedCoding] = useState<boolean>(false);
+  const [priviousCode, setPriviousCode] = useState<string>("");
+  const [studentState, setstudentState] = useState<string>("")
+
+  /* ───────────────── Refs ───────────────── */
+
+  const outputRef = useRef<HTMLDivElement | null>(null);
+  const savedPriviousCode = useRef<string>("");
+
+  const prevCodeRef = useRef<string>("");
+
+  /* ───────────────── Effects ───────────────── */
+
   useEffect(() => {
     outputRef.current?.scrollTo({
       top: outputRef.current.scrollHeight,
@@ -107,25 +129,77 @@ const Base = ({
     });
   }, [CodeCompiling]);
 
-  // 🔹 Run code function
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (Code.length - prevCodeRef.current.length > 50) {
+        setIsStartedCoding(true);
+      } else {
+        setIsStartedCoding(false);
+      }
+
+      prevCodeRef.current = Code;
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [Code]);
+
+  /* ───────────────── Helpers ───────────────── */
+
+  function classifyResult(stderr?: string): ErrorClassification {
+    if (
+      stderr &&
+      (stderr.includes("SyntaxError") ||
+        stderr.includes("Unexpected token") ||
+        stderr.includes("missing") ||
+        stderr.includes("expected"))
+    ) {
+      return {
+        type: "SYNTAX_ERROR",
+        reason: "Code failed before execution",
+      };
+    }
+
+    if (
+      stderr &&
+      (stderr.includes("TypeError") ||
+        stderr.includes("ReferenceError") ||
+        stderr.includes("RangeError") ||
+        stderr.includes("at "))
+    ) {
+      return {
+        type: "RUNTIME_ERROR",
+        reason: "Code crashed during execution",
+      };
+    }
+
+    return {
+      type: "SUCCESS",
+      reason: "Unclassified behavior",
+    };
+  }
+
+  /* ───────────────── Run Code ───────────────── */
+
   async function runCode(): Promise<void> {
     try {
       setCodeCompiling(true);
 
       const res = await fetch("/api/run", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           code: Code,
-          language_id: 63, // JavaScript
+          language_id: 63,
           input: "",
         }),
       });
 
       const result: RunCodeResponse = await res.json();
 
+      setLastRun(new Date());
+       setErrorType(classifyResult(result.stderr))
+       setstudentState(evaluateUserState())
+  
       setOutput((prev) => [
         ...prev,
         {
@@ -138,7 +212,7 @@ const Base = ({
           type: result.stderr || result.compile_output ? "error" : "success",
         },
       ]);
-    } catch (error) {
+    } catch {
       setOutput((prev) => [
         ...prev,
         {
@@ -150,6 +224,43 @@ const Base = ({
     } finally {
       setCodeCompiling(false);
     }
+  }
+
+  /* ───────────────── Analysis Helpers ───────────────── */
+
+  function isRepeatedError(lastOutputs: OutputItem[]): boolean {
+    if (lastOutputs.length < 3) return false;
+
+    const firstType = lastOutputs[0].type;
+    return lastOutputs.every(
+      (o) => o.type === firstType && o.type !== "success"
+    );
+  }
+
+  function hasNoSuccess(lastOutputs: OutputItem[]): boolean {
+    return lastOutputs.every((o) => o.type !== "success");
+  }
+
+  function isImproving(lastOutputs: OutputItem[]): boolean {
+    if (lastOutputs.length < 4) return false;
+
+    return lastOutputs[lastOutputs.length - 1].type === "success";
+  }
+
+  function isConfused(lastOutputs: OutputItem[]): boolean {
+    const types = lastOutputs.map((o) => o.type);
+    return new Set(types).size > 2;
+  }
+
+  function evaluateUserState(): UserState {
+    const recent = Output.slice(-4);
+
+    if (isRepeatedError(recent)) return "STUCK";
+    if (isConfused(recent)) return "CONFUSED";
+    if (isImproving(recent)) return "IMPROVING";
+    if (hasNoSuccess(recent)) return "STRUGGLING";
+
+    return "NORMAL";
   }
 
   return (
@@ -262,7 +373,40 @@ const Base = ({
                   <BsFileCode className="text-blue-500" />
                   Output
                 </div>
-                <div>
+                <div className="flex gap-4" >
+                  {errorCount > 2 && (
+              <div className="group relative p-1.5 rounded-sm hover:bg-[#333333] cursor-pointer">
+                <AiOutlineAlignLeft className="text-red-600  " />
+                <span className="absolute bottom-0 mr-2 z-10 right-full bg-zinc-900 text-white text-xs px-3 py-1.5 rounded hidden group-hover:block transition whitespace-nowrap">
+                  To many Errors
+                </span>
+              </div>
+            )}
+            {!isStartedCoding && (
+              <div className="group relative p-1.5 rounded-sm hover:bg-[#333333] cursor-pointer">
+                <AiOutlineAlignLeft className="text-red-600  " />
+                <span className="absolute bottom-0 mr-2 z-10 right-full bg-zinc-900 text-white text-xs px-3 py-1.5 rounded hidden group-hover:block transition whitespace-nowrap">
+                  You are not writing
+                </span>
+              </div>
+            )}
+             {studentState && (
+              <div className="group relative p-1.5 rounded-sm hover:bg-[#333333] cursor-pointer">
+                <span className="text-xs " >{studentState}</span>
+                <span className="absolute bottom-0 mr-2 z-10 right-full bg-zinc-900 text-white text-xs px-3 py-1.5 rounded hidden group-hover:block transition whitespace-nowrap">
+                  you status 
+                </span>
+              </div>
+            )}
+            {errorType && (
+              <div className="group relative p-1.5 rounded-sm hover:bg-[#333333] cursor-pointer">
+                {/* <AiOutlineAlignLeft className="text-green-600  " /> */}
+                <span className="text-xs">{errorType.type}</span>
+                <span className="absolute bottom-0 mr-2 z-10 right-full bg-zinc-900 text-white text-xs px-3 py-1.5 rounded hidden group-hover:block transition whitespace-nowrap">
+                  You are coding
+                </span>
+              </div>
+            )}
                   <div
                     onClick={() => {
                       setOutput([]);
